@@ -7,6 +7,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import WebRuntime from '@deepseek-ai/dsh-web'
+import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import * as bailianPlugin from '../src/index.ts'
 import {
   BailianSearchProvider,
@@ -20,6 +21,14 @@ import {
 } from '../src/provider.ts'
 import type { BailianSearchProviderOptions } from '../src/provider.ts'
 import type { DashScopeResponse } from '../src/types.ts'
+
+/** Minimal in-memory SettingsProvider so plugin tests get ctx.settings without a file. */
+class InMemorySettings extends SettingsProvider {
+  readonly writable = true
+  private doc: Record<string, unknown> = {}
+  protected async load() { return this.doc }
+  protected async persist(_ns: string, section: Record<string, unknown>) { this.doc[_ns] = section }
+}
 
 /** Construct the provider over a fixed options value; production passes a live thunk. */
 const searchProvider = (options: BailianSearchProviderOptions): BailianSearchProvider =>
@@ -545,6 +554,7 @@ describe('web-search-bailian plugin registration', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(searchResponse())))
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
     const fiber = await ctx.plugin(bailianPlugin, { apiKey: 'bl-key' })
     await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ truncated: false })
     await fiber.dispose()
@@ -564,7 +574,7 @@ describe('web-search-bailian plugin registration', () => {
     const unwrapped = loader.unwrapExports(bailianPlugin) as Record<string, unknown>
     expect(unwrapped).toBe(bailianPlugin)
     expect(unwrapped.name).toBe('web-search-bailian')
-    expect(unwrapped.inject).toEqual(['web'])
+    expect(unwrapped.inject).toEqual(['web', 'settings'])
     expect(typeof unwrapped.apply).toBe('function')
   })
 
@@ -572,6 +582,7 @@ describe('web-search-bailian plugin registration', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(searchResponse())))
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(bailianPlugin) as Parameters<Context['plugin']>[0]
     const fiber = await ctx.plugin(unwrapped, { apiKey: 'bl-key' })
@@ -582,6 +593,7 @@ describe('web-search-bailian plugin registration', () => {
   it('rejects an unknown search strategy at plugin construction', async () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
     await expect(ctx.plugin(bailianPlugin, { apiKey: 'bl-key', searchStrategy: 'fastest' }))
       .rejects.toThrow(/searchStrategy/)
   })
@@ -589,6 +601,7 @@ describe('web-search-bailian plugin registration', () => {
   it('rejects a non-boolean enableThinking at plugin construction', async () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
     await expect(ctx.plugin(bailianPlugin, { apiKey: 'bl-key', enableThinking: 'no' }))
       .rejects.toThrow(/enableThinking/)
   })
@@ -598,6 +611,7 @@ describe('web-search-bailian plugin registration', () => {
     vi.stubGlobal('fetch', fetchMock)
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
     bailianPlugin.apply(ctx, { apiKey: 'bl-key', enableThinking: false })
     await ctx.web.search({ query: 'q' })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
@@ -613,6 +627,7 @@ describe('web-search-bailian plugin registration', () => {
       vi.stubGlobal('fetch', fetchMock)
       const ctx = new Context()
       await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
       bailianPlugin.apply(ctx, {})
       await ctx.web.search({ query: 'q' })
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
@@ -635,6 +650,7 @@ describe('web-search-bailian plugin registration', () => {
     const ctx = new Context()
     try {
       await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
       await ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
       await ctx.plugin(bailianPlugin, { baseURL: 'https://dashscope.test' })
 
@@ -665,6 +681,7 @@ describe('web-search-bailian plugin registration', () => {
     try {
       const ctx = new Context()
       await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
       await ctx.plugin(bailianPlugin, {})
       let caught: unknown
       try {
@@ -684,6 +701,7 @@ describe('web-search-bailian plugin registration', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(searchResponse())))
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: BAILIAN_PROVIDER_ID })
+    await ctx.plugin(InMemorySettings)
     await ctx.plugin(bailianPlugin, { apiKey: 'bl-key' })
     // A second provider under a different id must not disturb the configured choice.
     ctx.web.registerSearchProvider({
